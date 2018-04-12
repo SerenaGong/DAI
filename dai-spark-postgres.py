@@ -52,7 +52,7 @@ spark.udf.register("getLine", getLine)
 spark.udf.register("getBase", getBase)
 spark.udf.register("calculateMessageFee", calculateMessageFee)
 
-src_jdbc_conn_str="jdbc:postgresql://localhost:5432/postgres"
+src_jdbc_conn_str="jdbc:postgresql://hwdb1.cjbwf6taixqt.us-east-1.rds.amazonaws.com:5432/hwpoc"
 
 
 #Source Transaction_data
@@ -77,8 +77,8 @@ spark.sql("select * from trx_table").show(5)
 
 plan_df = spark.read.format('jdbc').options(url=src_jdbc_conn_str,
              driver="org.postgresql.Driver",
-             user="postgres",
-             password="postgres",
+             user="hwpoc",
+             password="hwpoc",
              dbtable="plan").load().na.fill(0).cache()
 
 plan_df.printSchema()
@@ -126,8 +126,8 @@ account_usage_cost.createOrReplaceTempView("account_usage_cost")
 #Source Charge Data
 charge_df = spark.read.format('jdbc').options(url=src_jdbc_conn_str,
              driver="org.postgresql.Driver",
-             user="postgres",
-             password="postgres",
+             user="hwpoc",
+             password="hwpoc",
              dbtable="other_charges").load()
 
 
@@ -135,8 +135,8 @@ charge_df = spark.read.format('jdbc').options(url=src_jdbc_conn_str,
 
 fees_taxes_df = spark.read.format('jdbc').options(url=src_jdbc_conn_str,
              driver="org.postgresql.Driver",
-             user="postgres",
-             password="postgres",
+             user="hwpoc",
+             password="hwpoc",
              dbtable="fees_taxes").load()
 
 all_others_charges=charge_df.unionAll(fees_taxes_df).cache()
@@ -151,8 +151,8 @@ lineOthers = spark.sql("select a.account_id , a.plan_id, a.line, a.lineInfo, b.n
 
 line_charge_df = spark.read.format('jdbc').options(url=src_jdbc_conn_str,
              driver="org.postgresql.Driver",
-             user="postgres",
-             password="postgres",
+             user="hwpoc",
+             password="hwpoc",
              dbtable="monthly_charges").load().cache()
 
 line_charge_df.createOrReplaceTempView("line_charge")
