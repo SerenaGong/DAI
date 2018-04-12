@@ -36,7 +36,6 @@ def getLine(phone,line):
         return "additional"
 
 def calculateMessageFee(messages_used,text_limit_msg,text_overage_cost_per_msg):
-    messages_used = int(messages_used)
     if messages_used > text_limit_msg:
         return (messages_used - text_limit_msg)*text_overage_cost_per_msg
     else:
