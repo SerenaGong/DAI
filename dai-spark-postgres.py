@@ -70,6 +70,8 @@ spark.udf.register("calculateMessageFee", calculateMessageFee)
 
 src_jdbc_conn_str="jdbc:postgresql://hwdb1.cjbwf6taixqt.us-east-1.rds.amazonaws.com:5432/hwpoc"
 
+username="hwpoc"
+password="hwpoc"
 
 #Source Transaction_data
 source_sql_rdd = spark.sparkContext.textFile(source_trx_data)
@@ -82,6 +84,35 @@ fields_1 = [StructField(field_name, StringType(), True) for field_name in source
 
 schema = StructType(fields_1)
 
+# schema = StructType([
+#             StructField('account_id', StringType())
+#             , StructField('last_name', StringType())
+#             , StructField('first_name', StringType())
+#             , StructField('phone', StringType())
+#             , StructField('address_1', StringType())
+#             , StructField('address_2', StringType())
+#             , StructField('city', StringType())
+#             , StructField('state', StringType())
+#             , StructField('postal_code', StringType())
+#             , StructField('plan_id', StringType())
+#             , StructField('foundation_id', StringType())
+#             , StructField('joined_at', StringType())
+#             , StructField('prev_balance', IntegerType())
+#             , StructField('adjustments', DoubleType())
+#             , StructField('prev_voice', DoubleType())
+#             , StructField('prev_data', IntegerType())
+#             , StructField('line', StringType())
+#             , StructField('txn_type', StringType())
+#             , StructField('txn_at', StringType())
+#             , StructField('place', StringType())
+#             , StructField('sent_recv', StringType())
+#             , StructField('to_from', StringType())
+#             , StructField('in_plan', StringType())
+#             , StructField('in_network', StringType())
+#             , StructField('mins', IntegerType())
+#             , StructField('type_unit', StringType())
+#         ])
+
 source_sql_df = spark.createDataFrame(sc_rowRDD, schema).na.fill(0).cache()
 
 
@@ -93,8 +124,8 @@ spark.sql("select * from trx_table").show(5)
 
 plan_df = spark.read.format('jdbc').options(url=src_jdbc_conn_str,
              driver="org.postgresql.Driver",
-             user="hwpoc",
-             password="hwpoc",
+             user=username,
+             password=password,
              dbtable="plan").load().na.fill(0).cache()
 
 plan_df.printSchema()
@@ -144,8 +175,8 @@ account_usage_cost.createOrReplaceTempView("account_usage_cost")
 #Source Charge Data
 charge_df = spark.read.format('jdbc').options(url=src_jdbc_conn_str,
              driver="org.postgresql.Driver",
-             user="hwpoc",
-             password="hwpoc",
+             user=username,
+             password=password,
              dbtable="other_charges").load()
 
 
@@ -153,8 +184,8 @@ charge_df = spark.read.format('jdbc').options(url=src_jdbc_conn_str,
 
 fees_taxes_df = spark.read.format('jdbc').options(url=src_jdbc_conn_str,
              driver="org.postgresql.Driver",
-             user="hwpoc",
-             password="hwpoc",
+             user=username,
+             password=password,
              dbtable="fees_taxes").load()
 
 all_others_charges=charge_df.unionAll(fees_taxes_df).cache()
@@ -169,8 +200,8 @@ lineOthers = spark.sql("select a.account_id , a.plan_id, a.line, a.lineInfo, b.n
 
 line_charge_df = spark.read.format('jdbc').options(url=src_jdbc_conn_str,
              driver="org.postgresql.Driver",
-             user="hwpoc",
-             password="hwpoc",
+             user=username,
+             password=password,
              dbtable="monthly_charges").load().cache()
 
 line_charge_df.createOrReplaceTempView("line_charge")
@@ -187,8 +218,8 @@ totalLine.registerTempTable("totalLine_Charge")
 totalLine.write.csv(lineOutput, mode='overwrite')
 
 #ACCOUNT output
-account_total = spark.sql("select a.account_id, a.plan_id, a.msg_cost,voice_cost, a.data_cost, a.prev_balance, -a.prev_balance as prev_payment,a.adjustments,0 as balance,"
-          "(a.adjustments + a.total+b.line_total) as new_charges,  (a.adjustments + a.total+b.line_total) as debit_amount"
+account_total = spark.sql("select a.account_id, a.plan_id, a.msg_cost,voice_cost, a.data_cost, cast(a.prev_balance as int), -cast(a.prev_balance as int) as prev_payment,a.adjustments,0 as balance,"
+          "(cast( a.adjustments  as float) + a.total + b.line_total) as new_charges,  (cast(a.adjustments as float) + a.total+b.line_total) as debit_amount"
           " from account_usage_cost a inner join "
           "( select c.account_id, c.plan_id, sum(c.value) as line_total from totalLine_Charge c group by account_id, plan_id) b on "
           "a.account_id = b.account_id and a.plan_id = b.plan_id")
