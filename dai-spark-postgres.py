@@ -22,6 +22,22 @@ calculation_summary_sql_file = sys.argv[6]
 calculation_usage_sql_file = sys.argv[7]
 accountOutput = sys.argv[8]
 trxOutput = sys.argv[9]
+accountCount = sys.argv[10]
+
+
+
+print("sys.argv[1] = source_trx_data = {}".format(source_trx_data))
+print("sys.argv[2] = source_sql_schema_file = {}".format(source_sql_schema_file))
+print("sys.argv[3] = sql_file = {}".format(sql_file))
+print("sys.argv[4] = lineOutput = {}".format(lineOutput))
+print("sys.argv[5] = calculation_sql_file = {}".format(calculation_sql_file))
+print("sys.argv[6] = calculation_summary_sql_file = {}".format(calculation_summary_sql_file))
+print("sys.argv[7] = calculation_usage_sql_file = {}".format(calculation_usage_sql_file))
+print("sys.argv[8] = accountOutput = {}".format(accountOutput))
+print("sys.argv[9] = trxOutput = {}".format(trxOutput))
+print("sys.argv[10] = accountCount = {}".format(accountCount))
+
+
 
 def valueRatio(value, ratio):
     if value is not None:
@@ -35,11 +51,11 @@ def getLine(phone,line):
     else:
         return "additional"
 
-def calculateMessageFee(messages_used,text_limit_msg,text_overage_cost_per_msg):
-    if messages_used > text_limit_msg:
-        return (messages_used - text_limit_msg)*text_overage_cost_per_msg
-    else:
+def calculateMessageFee(messages_used, text_limit_msg, text_overage_cost_per_msg):
+    if messages_used is None or text_limit_msg is None or messages_used <= text_limit_msg:
         return 0
+    else:
+        return (messages_used - text_limit_msg) * text_overage_cost_per_msg
 
 def getBase(line,base_cost, line_cost):
     if line =="master":
@@ -97,6 +113,8 @@ account_line_txn_type_agg.show(50)
 account_line_txn_type_agg.createOrReplaceTempView("account_line_txn_type_agg")
 
 calculation_sql = read_file(calculation_sql_file)
+
+calculation_sql = calculation_sql.format(accountCount)
 
 account_line_agg = spark.sql(calculation_sql).cache()
 

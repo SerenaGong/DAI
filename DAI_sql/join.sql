@@ -34,9 +34,7 @@ FROM
         ) txt_plan on (    trx.account_id = txt_plan.account_id 
                        and trx.line = txt_plan.line 
                        and trx.txn_type = txt_plan.txn_type)
-where 
-        1 = 1
-    and trx.account_id = 1003574397952
+
 group by 
     trx.account_id, 
     trx.plan_id, 

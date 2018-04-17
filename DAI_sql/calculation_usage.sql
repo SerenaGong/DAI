@@ -48,7 +48,5 @@ from (
         end as data_cost
     from 
         account_usage a LEFT JOIN plan_table p on (a.plan_id = p.plan_id)
-    where
-            1=1
-        and a.account_id = 1003574397952
+
 ) a
