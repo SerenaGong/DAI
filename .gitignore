@@ -97,3 +97,8 @@ ENV/
 
 # mypy
 .mypy_cache/
+tmp/notebook/metastore_db/*
+*.crc
+**/part-*.csv
+**/_SUCCESS
+**/*.swp
