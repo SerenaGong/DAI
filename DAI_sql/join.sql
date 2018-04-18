@@ -16,6 +16,7 @@ SELECT
     trx.adjustments,
     txt_plan.messages_used AS messages_used,
     getLine(trx.phone,trx.line) as lineInfo,
+    pmod(trx.account_id,10),
     Sum(mins)        AS mins_used,
     Sum(type_unit)   AS data_used
 FROM 
@@ -52,7 +53,8 @@ group by
     trx.prev_balance,
     trx.adjustments,
     txt_plan.messages_used,
-    getLine(trx.phone,trx.line)
+    getLine(trx.phone,trx.line),
+    pmod(trx.account_id,10)
 order by 
     trx.account_id, 
     trx.plan_id, 
@@ -70,6 +72,7 @@ order by
     trx.prev_balance,
     trx.adjustments,
     txt_plan.messages_used,
-    getLine(trx.phone, trx.line)
+    getLine(trx.phone, trx.line),
+    pmod(trx.account_id,10)
 
 
