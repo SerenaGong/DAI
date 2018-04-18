@@ -7,4 +7,4 @@ unset PYSPARK_DRIVER_PYTHON_OPTS
 export SPARK_HOME=/Users/michael.wilson/.pyenv/versions/3.6.4/envs/hwpoc-serena/lib/python3.6/site-packages/pyspark
 export JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk1.8.0_162.jdk/Contents/Home 
 
-pyspark --driver-class-path $CURR_PATH/../lib/postgresql-42.2.2.jar
+pyspark  --master "local[4]" --driver-memory 1g --executor-memory 1g --executor-cores 1 --driver-class-path $CURR_PATH/../lib/postgresql-42.2.2.jar
