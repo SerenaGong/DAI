@@ -1,6 +1,7 @@
 
 from pyspark.sql import SparkSession
 from pyspark.sql.types import *
+import math
 
 
 import sys
@@ -22,7 +23,7 @@ calculation_summary_sql_file = sys.argv[6]
 calculation_usage_sql_file = sys.argv[7]
 accountOutput = sys.argv[8]
 trxOutput = sys.argv[9]
-accountCount = sys.argv[10]
+
 
 
 
@@ -35,7 +36,6 @@ print("sys.argv[6] = calculation_summary_sql_file = {}".format(calculation_summa
 print("sys.argv[7] = calculation_usage_sql_file = {}".format(calculation_usage_sql_file))
 print("sys.argv[8] = accountOutput = {}".format(accountOutput))
 print("sys.argv[9] = trxOutput = {}".format(trxOutput))
-print("sys.argv[10] = accountCount = {}".format(accountCount))
 
 
 
@@ -70,6 +70,8 @@ spark.udf.register("calculateMessageFee", calculateMessageFee)
 
 src_jdbc_conn_str="jdbc:postgresql://hwdb1.cjbwf6taixqt.us-east-1.rds.amazonaws.com:5432/hwpoc"
 
+#src_jdbc_conn_str="jdbc:postgresql://localhost:5432/postgres"
+
 username="hwpoc"
 password="hwpoc"
 
@@ -84,35 +86,6 @@ fields_1 = [StructField(field_name, StringType(), True) for field_name in source
 
 schema = StructType(fields_1)
 
-# schema = StructType([
-#             StructField('account_id', StringType())
-#             , StructField('last_name', StringType())
-#             , StructField('first_name', StringType())
-#             , StructField('phone', StringType())
-#             , StructField('address_1', StringType())
-#             , StructField('address_2', StringType())
-#             , StructField('city', StringType())
-#             , StructField('state', StringType())
-#             , StructField('postal_code', StringType())
-#             , StructField('plan_id', StringType())
-#             , StructField('foundation_id', StringType())
-#             , StructField('joined_at', StringType())
-#             , StructField('prev_balance', IntegerType())
-#             , StructField('adjustments', DoubleType())
-#             , StructField('prev_voice', DoubleType())
-#             , StructField('prev_data', IntegerType())
-#             , StructField('line', StringType())
-#             , StructField('txn_type', StringType())
-#             , StructField('txn_at', StringType())
-#             , StructField('place', StringType())
-#             , StructField('sent_recv', StringType())
-#             , StructField('to_from', StringType())
-#             , StructField('in_plan', StringType())
-#             , StructField('in_network', StringType())
-#             , StructField('mins', IntegerType())
-#             , StructField('type_unit', StringType())
-#         ])
-
 source_sql_df = spark.createDataFrame(sc_rowRDD, schema).na.fill(0).cache()
 
 
@@ -120,7 +93,12 @@ source_sql_df.createOrReplaceTempView("trx_table")
 
 spark.sql("select * from trx_table").show(5)
 
+
+#Testing to have 10 Partition files
+spark.sql("select pmod(account_id,10) as key from trx_table").show(5)
+
 #Source Plan_data
+
 
 plan_df = spark.read.format('jdbc').options(url=src_jdbc_conn_str,
              driver="org.postgresql.Driver",
@@ -144,8 +122,6 @@ account_line_txn_type_agg.show(50)
 account_line_txn_type_agg.createOrReplaceTempView("account_line_txn_type_agg")
 
 calculation_sql = read_file(calculation_sql_file)
-
-calculation_sql = calculation_sql.format(accountCount)
 
 account_line_agg = spark.sql(calculation_sql).cache()
 
@@ -212,24 +188,26 @@ line1 = spark.sql("select a.account_id , a.plan_id, a.line, a.lineInfo, b.name, 
 line2 = spark.sql("select a.account_id , a.plan_id, a.line, a.lineInfo,b.name, b.value from  account_line_agg a cross join line_charge b where b.line_type = 'both' ")
 
 #schema account_id| plan_id|line|  lineInfo|  name|value|
-totalLine= line1.unionAll(line2).unionAll(lineOthers).repartition(1)
+totalLine= line1.unionAll(line2).unionAll(lineOthers)
 totalLine.registerTempTable("totalLine_Charge")
+
+totalLine2 = spark.sql("select * from totalLine_Charge DISTRIBUTE BY pmod(account_id,10)")
 #ACCOUNT LINE output
-totalLine.write.csv(lineOutput, mode='overwrite')
+totalLine2.write.csv(lineOutput, mode='overwrite')
 
 #ACCOUNT output
 account_total = spark.sql("select a.account_id, a.plan_id, a.msg_cost,voice_cost, a.data_cost, cast(a.prev_balance as int), -cast(a.prev_balance as int) as prev_payment,a.adjustments,0 as balance,"
           "(cast( a.adjustments  as float) + a.total + b.line_total) as new_charges,  (cast(a.adjustments as float) + a.total+b.line_total) as debit_amount"
           " from account_usage_cost a inner join "
           "( select c.account_id, c.plan_id, sum(c.value) as line_total from totalLine_Charge c group by account_id, plan_id) b on "
-          "a.account_id = b.account_id and a.plan_id = b.plan_id")
+          "a.account_id = b.account_id and a.plan_id = b.plan_id DISTRIBUTE BY pmod(account_id,10)")
 
 account_total.show(5)
 
 account_total.write.csv(accountOutput, mode='overwrite')
 
 #Transaction_output
-trx = spark.sql ("select account_id,plan_id,line, txn_type, place,sent_recv ,to_from, in_plan, in_network,mins,type_unit from trx_table ")
+trx = spark.sql ("select account_id,plan_id,line, txn_type, place,sent_recv ,to_from, in_plan, in_network,mins,type_unit from trx_table DISTRIBUTE BY pmod(account_id,10)")
 trx.show(5)
 
 trx.write.csv(trxOutput, mode='overwrite')
