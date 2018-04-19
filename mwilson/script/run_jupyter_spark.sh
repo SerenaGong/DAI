@@ -9,5 +9,5 @@ export JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk1.8.0_162.jdk/Contents/Hom
 
 JDBC_JAR_PATH=$CURR_PATH/../lib/postgresql-42.2.2.jar
 
-# pyspark --master "local[4]" --driver-memory 1g --executor-memory 1g --executor-cores 2 --driver-class-path $JDBC_JAR_PATH 
+pyspark --master "local[4]" --driver-memory 1g --executor-memory 1g --executor-cores 2 --driver-class-path $JDBC_JAR_PATH 
 
