@@ -1,7 +1,6 @@
 
 from pyspark.sql import SparkSession
 from pyspark.sql.types import *
-import math
 
 
 import sys
@@ -12,7 +11,11 @@ def read_file(my_file):
     return data
 
 
-spark = SparkSession.builder.appName("Spark DAI POC").getOrCreate()
+spark = SparkSession.builder\
+    .config("spark.executor.memory", "1g")\
+    .config("spark.default.parallelism", "4")\
+    .config("spark.sql.shuffle.partitions", "4") \
+    .appName("Spark DAI POC").getOrCreate()
 
 source_trx_data = sys.argv[1]
 source_sql_schema_file = sys.argv[2]
@@ -26,7 +29,6 @@ trxOutput = sys.argv[9]
 
 
 
-
 print("sys.argv[1] = source_trx_data = {}".format(source_trx_data))
 print("sys.argv[2] = source_sql_schema_file = {}".format(source_sql_schema_file))
 print("sys.argv[3] = sql_file = {}".format(sql_file))
@@ -36,8 +38,6 @@ print("sys.argv[6] = calculation_summary_sql_file = {}".format(calculation_summa
 print("sys.argv[7] = calculation_usage_sql_file = {}".format(calculation_usage_sql_file))
 print("sys.argv[8] = accountOutput = {}".format(accountOutput))
 print("sys.argv[9] = trxOutput = {}".format(trxOutput))
-
-
 
 def valueRatio(value, ratio):
     if value is not None:
@@ -95,9 +95,9 @@ spark.sql("select * from trx_table").show(5)
 
 
 #Testing to have 10 Partition files
-spark.sql("select pmod(account_id,10) as key from trx_table").show(5)
+spark.sql("select distinct pmod(account_id,10) from trx_table").show(10)
 
-#Source Plan_data
+
 
 
 plan_df = spark.read.format('jdbc').options(url=src_jdbc_conn_str,
