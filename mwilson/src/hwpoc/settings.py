@@ -9,6 +9,9 @@ log = logging.getLogger(__name__)
 PG_URL="jdbc:postgresql://hwdb1.cjbwf6taixqt.us-east-1.rds.amazonaws.com:5432/hwpoc"
 SPARK = (SparkSession.builder.appName('hwpoc').enableHiveSupport().getOrCreate())
 
+# enable cartesian products
+SPARK.conf.set("spark.sql.crossJoin.enabled", "true")
+
 log.info("Spark Context: {}".format(SPARK.sparkContext._conf.getAll()))
 
 # input datafile & schema
@@ -42,4 +45,10 @@ RAW_SCHEMA = StructType([
     StructField('type_unit', StringType(), True)
 ])
 
-
+# dataframe fields
+MEMBER_FIELDS=['account_id', 'last_name', 'first_name', 'phone', 'address_1', 
+               'address_2', 'city', 'state', 'postal_code', 'plan_id', 
+               'foundation_id', 'joined_at', 'prev_balance', 'adjustments', 
+               'prev_voice', 'prev_data']
+TXN_FIELDS=['account_id', 'line', 'is_master', 'foundation_id', 'plan_id', 'txn_type', 'txn_at', 'place', 
+            'sent_recv', 'to_from', 'in_plan', 'in_network', 'mins', 'type_unit']
