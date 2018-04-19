@@ -68,12 +68,12 @@ spark.udf.register("getLine", getLine)
 spark.udf.register("getBase", getBase)
 spark.udf.register("calculateMessageFee", calculateMessageFee)
 
-#src_jdbc_conn_str="jdbc:postgresql://hwdb1.cjbwf6taixqt.us-east-1.rds.amazonaws.com:5432/hwpoc"
+src_jdbc_conn_str="jdbc:postgresql://hwdb1.cjbwf6taixqt.us-east-1.rds.amazonaws.com:5432/hwpoc"
 
-src_jdbc_conn_str="jdbc:postgresql://localhost:5432/postgres"
+#src_jdbc_conn_str="jdbc:postgresql://localhost:5432/postgres"
 
-username="postgres"
-password="postgres"
+username="hwpoc"
+password="hwpoc"
 
 #Source Transaction_data
 source_sql_rdd = spark.sparkContext.textFile(source_trx_data)
