@@ -143,7 +143,37 @@ query = """
                 plan p on (t.plan_id = p.plan_id)
         where t.is_master = 1 
     ) /* select * from master order by rand() limit 10 */
-    , master_charge as (
+    , additional as (
+        select distinct 
+            t.account_id, 
+            t.line,
+            t.is_master,
+            t.foundation_id,
+            p.plan_name, 
+            p.plan_desc, 
+            p.base_cost, 
+            p.line_cost, 
+            p.rollover_voice_min, 
+            p.rollover_data_gb, 
+            p.adjustment_per_month, 
+            p.adjustment_length_month, 
+            p.voice_limit_min, 
+            p.voice_overage_cost_per_min, 
+            p.data_limit_gb, 
+            p.data_overage_cost_per_gb, 
+            p.text_limit_msg, 
+            p.text_overage_cost_per_msg
+        from 
+            txns t join 
+                plan p on (t.plan_id = p.plan_id)
+        where t.is_master = 0
+    ) /* select * from master order by rand() limit 10 */
+    , all_line as (
+        select * from master union all
+        select * from additional
+    ) /* select * from all_line order by rand() limit 10 */
+    , plan_charge as (
+        -- only applied to the "master" line
         select
             m.plan_desc name,
             m.base_cost charge,
@@ -155,7 +185,8 @@ query = """
         from
             master m
     )
-    , monthly_charge as (
+    , master_line_monthly_charge as (
+        -- charges only for master lines
         select
             mc.name,
             mc.value charge,
@@ -170,8 +201,26 @@ query = """
         where
             mc.line_type in ('both', 'master')
         
-    ) /* select * from monthly_charges order by rand() limit 10 */
+    ) /* select * from master_line_monthly_charge order by rand() limit 10 */
+    , additional_line_monthly_charge as (
+        -- charges only for additional lines
+        select
+            mc.name,
+            mc.value charge,
+            a.line,
+            a.is_master,
+            a.account_id,
+            'monthly' grp1,
+            cast(NULL as string) grp2
+        from
+            monthly_charges mc,
+            additional a 
+        where
+            mc.line_type in ('both', 'master')
+        
+    ) /*select * from additional_line_monthly_charge order by rand() limit 10 */
     , foundation_charge as (
+        -- master line only
         select
             f.name,
             f.value charge,
@@ -188,40 +237,41 @@ query = """
         select
             oc.name,
             oc.value charge,
-            m.line,
-            m.is_master,
-            m.account_id,
+            al.line,
+            al.is_master,
+            al.account_id,
             'other' grp1,
             'fees' grp2
         from
             other_charges oc,
-            master m
+            all_line al
     ) /* select * from other_charge order by rand() limit 10 */
     , fee_tax as (
         select
             ft.name,
             ft.value charge,
-            m.line,
-            m.is_master,
-            m.account_id,
+            al.line,
+            al.is_master,
+            al.account_id,
             'other' grp1,
             'taxes' grp2
         from
             fees_taxes ft,
-            master m
+            all_line al
     ) /* select * from other_charge order by rand() limit 10 */
     , all_charge as (
-        select * from master_charge union all
+        select * from plan_charge union all
         -- TODO: compute ratio based foundation charges
         select * from foundation_charge union all
-        select * from monthly_charge union all
+        select * from master_line_monthly_charge union all
+        select * from additional_line_monthly_charge union all
         select * from other_charge union all
-        select * from fee_tax
+        select * from fee_tax 
     )  /* select * from all_charge order by rand() limit 10 */
     select * 
     from all_charge 
     where account_id = '1001493346304' 
-    order by account_id
+    order by account_id, line, name
 """
 result = spark.sql(query)
 result.show(100)
