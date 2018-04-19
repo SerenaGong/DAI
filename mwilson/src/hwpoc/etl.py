@@ -106,9 +106,9 @@ members = raw.select(*settings.MEMBER_FIELDS).distinct()
 members.createOrReplaceTempView("members")
 members.show(5)
 
-txns = raw.select(*settings.TXN_FIELDS)
-txns.createOrReplaceTempView("txns")
-txns.show(5)
+txn = raw.select(*settings.TXN_FIELDS)
+txn.createOrReplaceTempView("txn")
+txn.show(5)
   
 # skipping per plan logic, assuming all members are in PLAN3000 for now.
 log.warning("Assuming all members are in PLAN3000 (for now)")
@@ -117,7 +117,7 @@ log.warning("Assuming all members are in PLAN3000 (for now)")
 # empty dataframes.
 
 # calc line-level detail charges
-query = """
+master_line_sql = """
     with master as (
         select distinct 
             t.account_id, 
@@ -139,11 +139,20 @@ query = """
             p.text_limit_msg, 
             p.text_overage_cost_per_msg
         from 
-            txns t join 
+            txn t join 
                 plan p on (t.plan_id = p.plan_id)
         where t.is_master = 1 
     ) /* select * from master order by rand() limit 10 */
-    , additional as (
+    select * from master
+    cluster by account_id
+"""
+master_line = spark.sql(master_line_sql)
+master_line.show()
+master_line.createOrReplaceTempView("master_line")
+print("Master Line count: {}".format(master_line.count()))
+
+additional_line_sql = """
+    with additional as (
         select distinct 
             t.account_id, 
             t.line,
@@ -164,13 +173,22 @@ query = """
             p.text_limit_msg, 
             p.text_overage_cost_per_msg
         from 
-            txns t join 
+            txn t join 
                 plan p on (t.plan_id = p.plan_id)
-        where t.is_master = 0
-    ) /* select * from master order by rand() limit 10 */
-    , all_line as (
-        select * from master union all
-        select * from additional
+        where t.is_master = 0 
+    ) /* select * from additional order by rand() limit 10 */
+    select * from additional 
+    cluster by account_id
+"""
+additional_line = spark.sql(additional_line_sql)
+additional_line.show()
+additional_line.createOrReplaceTempView("additional_line")
+print("Additional Line count: {}".format(additional_line.count()))
+
+line_charge_sql = """
+    with all_line as (
+        select * from master_line union all
+        select * from additional_line
     ) /* select * from all_line order by rand() limit 10 */
     , plan_charge as (
         -- only applied to the "master" line
@@ -183,7 +201,7 @@ query = """
             'monthly' grp1,
             cast(NULL as string) grp2
         from
-            master m
+            master_line m
     )
     , master_line_monthly_charge as (
         -- charges only for master lines
@@ -197,7 +215,7 @@ query = """
             cast(NULL as string) grp2
         from
             monthly_charges mc,
-            master m
+            master_line m
         where
             mc.line_type in ('both', 'master')
         
@@ -214,7 +232,7 @@ query = """
             cast(NULL as string) grp2
         from
             monthly_charges mc,
-            additional a 
+            additional_line a 
         where
             mc.line_type in ('both', 'master')
         
@@ -231,7 +249,7 @@ query = """
             cast(NULL as string) grp2
         from
             foundation f inner join 
-                master m on (f.foundation_id = m.foundation_id)
+                master_line m on (f.foundation_id = m.foundation_id)
     ) /* select * from foundation_charge order by rand() limit 10 */
     , other_charge as (
         select
@@ -270,9 +288,69 @@ query = """
     )  /* select * from all_charge order by rand() limit 10 */
     select * 
     from all_charge 
-    where account_id = '1001493346304' 
-    order by account_id, line, name
+    --where account_id = '1001493346304' 
+    cluster by account_id
 """
-result = spark.sql(query)
-result.show(100)
+line_charge = spark.sql(line_charge_sql)
+line_charge.show(100)
+print("Row count: {}".format(line_charge.count()))
+
+# TODO: Add logic to handle Adjustment logic
+
+# voice usage per line
+voice_usage_sql = """
+    select
+        account_id,
+        line,
+        sum(mins) value
+    from
+       txn
+    where
+        txn_type='VOC'
+    group by
+        1, 2
+    cluster by account_id
+        
+"""
+voice_usage = spark.sql(voice_usage_sql)
+voice_usage.createOrReplaceTempView("voice_usage")
+voice_usage.show()
+
+# data usage
+data_usage_sql = """
+    select
+        account_id,
+        line,
+        sum(type_unit) value
+    from
+       txn
+    where
+        txn_type='DAT'
+    group by
+        1, 2
+    cluster by account_id
+        
+"""
+data_usage = spark.sql(data_usage_sql)
+data_usage.createOrReplaceTempView("data_usage")
+data_usage.show()
+
+# txt usage
+txt_usage_sql = """
+    select
+        account_id,
+        line,
+        count(1) value
+    from
+       txn
+    where
+        txn_type='TXT'
+    group by
+        1, 2
+    cluster by account_id
+        
+"""
+txt_usage = spark.sql(txt_usage_sql)
+txt_usage.createOrReplaceTempView("txt_usage")
+txt_usage.show()
 
