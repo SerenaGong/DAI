@@ -41,24 +41,9 @@ def get_lookup(table, spark_table):
 
 #######
 # spark functions
-def value_or_ratio(value, ratio):
-    return value if value is not None else ratio
-
-
 @udf("integer")
 def is_master(phone, line):
     return 1 if phone==line else 0
-
-
-def calculate_message_fee(messages_used, text_limit_msg, text_overage_cost_per_msg):
-    if messages_used is None or text_limit_msg is None or messages_used <= text_limit_msg:
-        return 0
-    else:
-        return (messages_used - text_limit_msg) * text_overage_cost_per_msg
-
-
-def get_base(line, base_cost, line_cost):
-    return base_cost if line == "master" else line_cost
 
 
 @udf("float")
@@ -79,6 +64,7 @@ def calc_prev_rollover(prev_used, limit):
 
     finally:
         return retval
+
 
 @udf("float")
 def calc_overage(used, rollover, limit):
@@ -108,10 +94,6 @@ def calc_overage(used, rollover, limit):
 spark.udf.register("is_master", is_master)
 spark.udf.register("calc_overage", calc_overage)
 spark.udf.register("calc_prev_rollover", calc_prev_rollover)
-
-# spark.udf.register("valueRatio", value_or_ratio)
-# spark.udf.register("getBase", get_base)
-# spark.udf.register("calculateMessageFee", calculate_message_fee)
 
 
 ########
@@ -185,6 +167,7 @@ log.info("Creating master_line temp table.")
 master_line = spark.sql(master_line_sql)
 master_line.show()
 master_line.createOrReplaceTempView("master_line")
+master_line.cache()
 log.warning("Master Line count: {}".format(master_line.count()))
 
 additional_line_sql = """
@@ -220,6 +203,7 @@ log.info("Creating additional_line temp table.")
 additional_line = spark.sql(additional_line_sql)
 additional_line.show()
 additional_line.createOrReplaceTempView("additional_line")
+additional_line.cache()
 log.warning("Additional Line count: {}".format(additional_line.count()))
 
 line_charge_sql = """
@@ -329,17 +313,19 @@ line_charge_sql = """
     cluster by account_id
 """
 line_charge = spark.sql(line_charge_sql)
-line_charge.show(100)
-print("Row count: {}".format(line_charge.count()))
+line_charge.createOrReplaceTempView("line_charge")
+line_charge.show()
 
 # TODO: Add logic to handle Adjustment logic
 
+log.warning("Computing Voice transaction overages.  Please wait ...")
 # voice usage per line
 voice_usage_sql = """
     with a as (
         select
             r.account_id,
             r.plan_id,
+            r.phone,
             r.line,
             r.prev_voice prev_used,
             p.voice_limit_min lim,
@@ -351,12 +337,13 @@ voice_usage_sql = """
         where
             txn_type='VOC'
         group by
-            1, 2, 3, 4, 5, 6
+            1, 2, 3, 4, 5, 6, 7
     ) /* select * from a order by rand() limit 10 */
     , l as (
         select
             a.account_id,
             a.plan_id,
+            a.phone, 
             a.line,
             a.prev_used,
             a.lim,
@@ -370,6 +357,7 @@ voice_usage_sql = """
         select
             l.account_id,
             l.plan_id,
+            l.phone,
             l.line,
             l.curr_used,
             l.rollover,
@@ -378,31 +366,48 @@ voice_usage_sql = """
             l.cost
         from l
     ) /* select * from o order by rand() limit 10 */
+    , j as (
+        select
+            o.account_id,
+            o.plan_id,
+            o.phone, 
+            o.line,
+            o.curr_used,
+            o.rollover,
+            o.lim,
+            round(o.overage * o.cost, 2) overage_cost
+        from
+            o
+        where 
+            o.overage > 0
+    )
     select
-        o.account_id,
-        o.plan_id,
-        o.line,
-        o.curr_used,
-        o.rollover,
-        o.lim,
-        round(o.overage * o.cost, 2) overage_cost
+        'Voice Overage' name,
+        round(sum(j.overage_cost), 2) value,
+        j.phone line,
+        int(1) is_master,
+        j.account_id,
+        'monthly' grp1,
+        'overage' grp2 
     from
-        o
-    where 
-        o.overage > 0
-    cluster by o.account_id
+        j
+    group by 1, 3, 4, 5, 6, 7
+    cluster by j.account_id
     --order by rand()
 """
 voice_usage = spark.sql(voice_usage_sql)
 voice_usage.createOrReplaceTempView("voice_usage")
 voice_usage.show()
 
+
 # data usage per line
+log.warning("Computing Data transaction overages.  Please wait ...")
 data_usage_sql = """
     with a as (
         select
             r.account_id,
             r.plan_id,
+            r.phone,
             r.line,
             r.prev_data prev_used,
             round(p.data_limit_gb*1024.0*1024.0, 2) lim,
@@ -414,12 +419,13 @@ data_usage_sql = """
         where
             txn_type='DAT'
         group by
-            1, 2, 3, 4, 5, 6
+            1, 2, 3, 4, 5, 6, 7
     ) /* select * from a order by rand() limit 20 */
     , l as (
         select
             a.account_id,
             a.plan_id,
+            a.phone,
             a.line,
             a.prev_used,
             a.lim,
@@ -433,6 +439,7 @@ data_usage_sql = """
         select
             l.account_id,
             l.plan_id,
+            l.phone,
             l.line,
             l.curr_used,
             l.rollover,
@@ -441,32 +448,46 @@ data_usage_sql = """
             l.cost
         from l
     ) /* select * from o order by rand() limit 20 */
+    , j as (
+        select
+            o.account_id,
+            o.plan_id,
+            o.phone, 
+            o.line,
+            o.curr_used,
+            o.rollover,
+            o.lim,
+            round(o.overage * o.cost, 2) overage_cost
+        from
+            o
+        where 
+            o.overage > 0
+    )
     select
-        o.account_id,
-        o.plan_id,
-        o.line,
-        o.curr_used,
-        o.rollover,
-        o.lim,
-        round(o.overage * o.cost, 2) overage_cost
+        'Data Overage' name,
+        round(sum(j.overage_cost), 2) value,
+        j.phone line,
+        int(1) is_master,
+        j.account_id,
+        'monthly' grp1,
+        'overage' grp2 
     from
-        o
-    where 
-        o.overage > 0
-    cluster by o.account_id
-    --order by rand()
+        j
+    group by 1, 3, 4, 5, 6, 7
+    cluster by j.account_id
 """
 data_usage = spark.sql(data_usage_sql)
 data_usage.createOrReplaceTempView("data_usage")
 data_usage.show()
 
-
 # text usage per line
+log.warning("Computing Text Message transaction overages.  Please wait ...")
 text_usage_sql = """
     with a as (
         select
             r.account_id,
             r.plan_id,
+            r.phone,
             r.line,
             0.0 prev_used,
             p.text_limit_msg lim,
@@ -478,12 +499,13 @@ text_usage_sql = """
         where
             txn_type='TXT'
         group by
-            1, 2, 3, 4, 5, 6
+            1, 2, 3, 4, 5, 6, 7
     ) /* select * from a order by rand() limit 10 */
     , l as (
         select
             a.account_id,
             a.plan_id,
+            a.phone,
             a.line,
             a.prev_used,
             a.lim,
@@ -497,6 +519,7 @@ text_usage_sql = """
         select
             l.account_id,
             l.plan_id,
+            l.phone,
             l.line,
             l.curr_used,
             l.rollover,
@@ -505,22 +528,147 @@ text_usage_sql = """
             l.cost
         from l
     ) /* select * from o order by rand() limit 10 */
+    , j as (
+        select
+            o.account_id,
+            o.plan_id,
+            o.phone, 
+            o.line,
+            o.curr_used,
+            o.rollover,
+            o.lim,
+            round(o.overage * o.cost, 2) overage_cost
+        from
+            o
+        where 
+            o.overage > 0
+    )
     select
-        o.account_id,
-        o.plan_id,
-        o.line,
-        o.curr_used,
-        o.rollover,
-        o.lim,
-        round(o.overage * o.cost, 2) overage_cost
+        'Text Messaging Overage' name,
+        round(sum(j.overage_cost), 2) value,
+        j.phone line,
+        int(1) is_master,
+        j.account_id,
+        'monthly' grp1,
+        'overage' grp2 
     from
-        o
-    where 
-        o.overage > 0
-    cluster by o.account_id
-    --order by rand()
+        j
+    group by 1, 3, 4, 5, 6, 7
+    cluster by j.account_id
 """
 text_usage = spark.sql(text_usage_sql)
 text_usage.createOrReplaceTempView("text_usage")
 text_usage.show()
+
+# TODO: computer foundation line-level charges for value based calcs
+# Add line-level detail record only to master account.
+
+# TODO: computer foundation line-level charges for ratio based calcs
+# Add line-level detail record only to master account.
+# Compute ratio on a sum of line-level charges that exclude fees-taxes entries.
+
+# line info
+log.warning("Aggregatting line-level monthly and overage charges.  Please wait ...")
+line_info_sql = """
+    with a as (
+        select * from line_charge union all
+        select * from voice_usage union all
+        select * from data_usage union all
+        select * from text_usage
+    )
+    select
+        *
+    from
+        a
+    --order by rand()
+    cluster by a.account_id
+"""
+line_info = spark.sql(line_info_sql)
+line_info.createOrReplaceTempView("line_info")
+line_info.show()
+
+
+# fake previous months balance relative to current months charges
+log.warning("Computing account-level info.  Please wait ...")
+account_info_sql = """
+    with li as (
+        select
+            account_id,
+            round(sum(charge), 2) charge
+        from
+            line_info
+        group by
+            1
+    ) /* select * from li order by rand() limit 10 */
+    , r as (
+        select distinct
+            account_id,
+            foundation_id,
+            last_name,
+            first_name,
+            phone,
+            address_1,
+            address_2,
+            city,
+            state,
+            postal_code,
+            plan_id,
+            prev_balance prev_balance_orig
+        from raw
+    ) /* select * from r order by rand() limit 20 */
+    , a as (
+        select
+            r.account_id,
+            r.prev_balance_orig,
+            li.charge,
+            (li.charge * 0.10 * (rand() - 0.5)) + li.charge prev_balance_delta
+        from
+            r join 
+                li on (r.account_id = li.account_id)
+    ) /* select * from a order by rand() limit 20 */
+    , b as (
+        select
+            a.account_id,
+            a.prev_balance_orig,
+            a.charge,
+            a.prev_balance_delta,
+            a.prev_balance_delta + a.charge prev_balance,
+            -(a.prev_balance_delta + a.charge - a.prev_balance_orig) prev_payment
+        from
+            a
+    ) /* select * from b order by rand() limit 20 */
+    , c as (
+        select
+            r.account_id,
+            r.foundation_id,
+            r.last_name,
+            r.first_name,
+            r.phone,
+            r.address_1,
+            r.address_2,
+            r.city,
+            r.state,
+            r.postal_code,
+            r.plan_id,    
+            b.prev_balance,
+            b.prev_payment,
+            0.0 adjustments,
+            b.prev_balance + b.prev_payment + 0.0 balance,
+            b.charge,
+            b.prev_balance + b.prev_payment + 0.0 + b.charge debit_amount
+        from
+            b
+                inner join r on (b.account_id = r.account_id)
+    ) /* select * from c order by rand() limit 10 */
+    select 
+        * 
+    from 
+        c
+    cluster by 
+        account_id
+
+"""
+account_info = spark.sql(account_info_sql)
+account_info.createOrReplaceTempView("account_info")
+account_info.show()
 
