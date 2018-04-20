@@ -148,189 +148,189 @@ raw = raw.withColumn('is_master', is_master(raw["phone"], raw["line"]))
 raw.createOrReplaceTempView("raw")
 raw.show(5)
 
-# # TODO: figure out why removing address_1 for some members produces
-# # empty dataframes.
-# 
-# # calc line-level detail charges
-# master_line_sql = """
-#     with master as (
-#         select distinct 
-#             r.account_id, 
-#             r.line,
-#             r.is_master,
-#             r.foundation_id,
-#             p.plan_name, 
-#             p.plan_desc, 
-#             p.base_cost, 
-#             p.line_cost, 
-#             p.rollover_voice_min, 
-#             p.rollover_data_gb, 
-#             p.adjustment_per_month, 
-#             p.adjustment_length_month, 
-#             p.voice_limit_min, 
-#             p.voice_overage_cost_per_min, 
-#             p.data_limit_gb, 
-#             p.data_overage_cost_per_gb, 
-#             p.text_limit_msg, 
-#             p.text_overage_cost_per_msg
-#         from 
-#             raw r join 
-#                 plan p on (r.plan_id = p.plan_id)
-#         where r.is_master = 1 
-#     ) /* select * from master order by rand() limit 10 */
-#     select * from master
-#     cluster by account_id
-# """
-# log.info("Creating master_line temp table.")
-# master_line = spark.sql(master_line_sql)
-# master_line.show()
-# master_line.createOrReplaceTempView("master_line")
-# log.warning("Master Line count: {}".format(master_line.count()))
-# 
-# additional_line_sql = """
-#     with additional as (
-#         select distinct 
-#             r.account_id, 
-#             r.line,
-#             r.is_master,
-#             r.foundation_id,
-#             p.plan_name, 
-#             p.plan_desc, 
-#             p.base_cost, 
-#             p.line_cost, 
-#             p.rollover_voice_min, 
-#             p.rollover_data_gb, 
-#             p.adjustment_per_month, 
-#             p.adjustment_length_month, 
-#             p.voice_limit_min, 
-#             p.voice_overage_cost_per_min, 
-#             p.data_limit_gb, 
-#             p.data_overage_cost_per_gb, 
-#             p.text_limit_msg, 
-#             p.text_overage_cost_per_msg
-#         from 
-#             raw r join 
-#                 plan p on (r.plan_id = p.plan_id)
-#         where r.is_master = 0 
-#     ) /* select * from additional order by rand() limit 10 */
-#     select * from additional 
-#     cluster by account_id
-# """
-# log.info("Creating additional_line temp table.")
-# additional_line = spark.sql(additional_line_sql)
-# additional_line.show()
-# additional_line.createOrReplaceTempView("additional_line")
-# log.warning("Additional Line count: {}".format(additional_line.count()))
-# 
-# line_charge_sql = """
-#     with all_line as (
-#         select * from master_line union all
-#         select * from additional_line
-#     ) /* select * from all_line order by rand() limit 10 */
-#     , plan_charge as (
-#         -- only applied to the "master" line
-#         select
-#             m.plan_desc name,
-#             m.base_cost charge,
-#             m.line,
-#             m.is_master,
-#             m.account_id,
-#             'monthly' grp1,
-#             cast(NULL as string) grp2
-#         from
-#             master_line m
-#     )
-#     , master_line_monthly_charge as (
-#         -- charges only for master lines
-#         select
-#             mc.name,
-#             mc.value charge,
-#             m.line,
-#             m.is_master,
-#             m.account_id,
-#             'monthly' grp1,
-#             cast(NULL as string) grp2
-#         from
-#             monthly_charges mc,
-#             master_line m
-#         where
-#             mc.line_type in ('both', 'master')
-#         
-#     ) /* select * from master_line_monthly_charge order by rand() limit 10 */
-#     , additional_line_monthly_charge as (
-#         -- charges only for additional lines
-#         select
-#             mc.name,
-#             mc.value charge,
-#             a.line,
-#             a.is_master,
-#             a.account_id,
-#             'monthly' grp1,
-#             cast(NULL as string) grp2
-#         from
-#             monthly_charges mc,
-#             additional_line a 
-#         where
-#             mc.line_type in ('both', 'master')
-#         
-#     ) /*select * from additional_line_monthly_charge order by rand() limit 10 */
-#     , foundation_charge as (
-#         -- master line only
-#         select
-#             f.name,
-#             f.value charge,
-#             m.line,
-#             m.is_master,
-#             m.account_id,
-#             'monthly' grp1,
-#             cast(NULL as string) grp2
-#         from
-#             foundation f inner join 
-#                 master_line m on (f.foundation_id = m.foundation_id)
-#     ) /* select * from foundation_charge order by rand() limit 10 */
-#     , other_charge as (
-#         select
-#             oc.name,
-#             oc.value charge,
-#             al.line,
-#             al.is_master,
-#             al.account_id,
-#             'other' grp1,
-#             'fees' grp2
-#         from
-#             other_charges oc,
-#             all_line al
-#     ) /* select * from other_charge order by rand() limit 10 */
-#     , fee_tax as (
-#         select
-#             ft.name,
-#             ft.value charge,
-#             al.line,
-#             al.is_master,
-#             al.account_id,
-#             'other' grp1,
-#             'taxes' grp2
-#         from
-#             fees_taxes ft,
-#             all_line al
-#     ) /* select * from other_charge order by rand() limit 10 */
-#     , all_charge as (
-#         select * from plan_charge union all
-#         -- TODO: compute ratio based foundation charges
-#         select * from foundation_charge union all
-#         select * from master_line_monthly_charge union all
-#         select * from additional_line_monthly_charge union all
-#         select * from other_charge union all
-#         select * from fee_tax 
-#     )  /* select * from all_charge order by rand() limit 10 */
-#     select * 
-#     from all_charge 
-#     --where account_id = '1001493346304' 
-#     cluster by account_id
-# """
-# line_charge = spark.sql(line_charge_sql)
-# line_charge.show(100)
-# print("Row count: {}".format(line_charge.count()))
+# TODO: figure out why removing address_1 for some members produces
+# empty dataframes.
+
+# calc line-level detail charges
+master_line_sql = """
+    with master as (
+        select distinct 
+            r.account_id, 
+            r.line,
+            r.is_master,
+            r.foundation_id,
+            p.plan_name, 
+            p.plan_desc, 
+            p.base_cost, 
+            p.line_cost, 
+            p.rollover_voice_min, 
+            p.rollover_data_gb, 
+            p.adjustment_per_month, 
+            p.adjustment_length_month, 
+            p.voice_limit_min, 
+            p.voice_overage_cost_per_min, 
+            p.data_limit_gb, 
+            p.data_overage_cost_per_gb, 
+            p.text_limit_msg, 
+            p.text_overage_cost_per_msg
+        from 
+            raw r join 
+                plan p on (r.plan_id = p.plan_id)
+        where r.is_master = 1 
+    ) /* select * from master order by rand() limit 10 */
+    select * from master
+    cluster by account_id
+"""
+log.info("Creating master_line temp table.")
+master_line = spark.sql(master_line_sql)
+master_line.show()
+master_line.createOrReplaceTempView("master_line")
+log.warning("Master Line count: {}".format(master_line.count()))
+
+additional_line_sql = """
+    with additional as (
+        select distinct 
+            r.account_id, 
+            r.line,
+            r.is_master,
+            r.foundation_id,
+            p.plan_name, 
+            p.plan_desc, 
+            p.base_cost, 
+            p.line_cost, 
+            p.rollover_voice_min, 
+            p.rollover_data_gb, 
+            p.adjustment_per_month, 
+            p.adjustment_length_month, 
+            p.voice_limit_min, 
+            p.voice_overage_cost_per_min, 
+            p.data_limit_gb, 
+            p.data_overage_cost_per_gb, 
+            p.text_limit_msg, 
+            p.text_overage_cost_per_msg
+        from 
+            raw r join 
+                plan p on (r.plan_id = p.plan_id)
+        where r.is_master = 0 
+    ) /* select * from additional order by rand() limit 10 */
+    select * from additional 
+    cluster by account_id
+"""
+log.info("Creating additional_line temp table.")
+additional_line = spark.sql(additional_line_sql)
+additional_line.show()
+additional_line.createOrReplaceTempView("additional_line")
+log.warning("Additional Line count: {}".format(additional_line.count()))
+
+line_charge_sql = """
+    with all_line as (
+        select * from master_line union all
+        select * from additional_line
+    ) /* select * from all_line order by rand() limit 10 */
+    , plan_charge as (
+        -- only applied to the "master" line
+        select
+            m.plan_desc name,
+            m.base_cost charge,
+            m.line,
+            m.is_master,
+            m.account_id,
+            'monthly' grp1,
+            cast(NULL as string) grp2
+        from
+            master_line m
+    )
+    , master_line_monthly_charge as (
+        -- charges only for master lines
+        select
+            mc.name,
+            mc.value charge,
+            m.line,
+            m.is_master,
+            m.account_id,
+            'monthly' grp1,
+            cast(NULL as string) grp2
+        from
+            monthly_charges mc,
+            master_line m
+        where
+            mc.line_type in ('both', 'master')
+        
+    ) /* select * from master_line_monthly_charge order by rand() limit 10 */
+    , additional_line_monthly_charge as (
+        -- charges only for additional lines
+        select
+            mc.name,
+            mc.value charge,
+            a.line,
+            a.is_master,
+            a.account_id,
+            'monthly' grp1,
+            cast(NULL as string) grp2
+        from
+            monthly_charges mc,
+            additional_line a 
+        where
+            mc.line_type in ('both', 'master')
+        
+    ) /*select * from additional_line_monthly_charge order by rand() limit 10 */
+    , foundation_charge as (
+        -- master line only
+        select
+            f.name,
+            f.value charge,
+            m.line,
+            m.is_master,
+            m.account_id,
+            'monthly' grp1,
+            cast(NULL as string) grp2
+        from
+            foundation f inner join 
+                master_line m on (f.foundation_id = m.foundation_id)
+    ) /* select * from foundation_charge order by rand() limit 10 */
+    , other_charge as (
+        select
+            oc.name,
+            oc.value charge,
+            al.line,
+            al.is_master,
+            al.account_id,
+            'other' grp1,
+            'fees' grp2
+        from
+            other_charges oc,
+            all_line al
+    ) /* select * from other_charge order by rand() limit 10 */
+    , fee_tax as (
+        select
+            ft.name,
+            ft.value charge,
+            al.line,
+            al.is_master,
+            al.account_id,
+            'other' grp1,
+            'taxes' grp2
+        from
+            fees_taxes ft,
+            all_line al
+    ) /* select * from other_charge order by rand() limit 10 */
+    , all_charge as (
+        select * from plan_charge union all
+        -- TODO: compute ratio based foundation charges
+        select * from foundation_charge union all
+        select * from master_line_monthly_charge union all
+        select * from additional_line_monthly_charge union all
+        select * from other_charge union all
+        select * from fee_tax 
+    )  /* select * from all_charge order by rand() limit 10 */
+    select * 
+    from all_charge 
+    --where account_id = '1001493346304' 
+    cluster by account_id
+"""
+line_charge = spark.sql(line_charge_sql)
+line_charge.show(100)
+print("Row count: {}".format(line_charge.count()))
 
 # TODO: Add logic to handle Adjustment logic
 
@@ -459,4 +459,68 @@ data_usage_sql = """
 data_usage = spark.sql(data_usage_sql)
 data_usage.createOrReplaceTempView("data_usage")
 data_usage.show()
+
+
+# text usage per line
+text_usage_sql = """
+    with a as (
+        select
+            r.account_id,
+            r.plan_id,
+            r.line,
+            0.0 prev_used,
+            p.text_limit_msg lim,
+            p.text_overage_cost_per_msg cost,
+            count(1) curr_used 
+        from
+            raw r inner join
+                plan p on (r.plan_id = p.plan_id)
+        where
+            txn_type='TXT'
+        group by
+            1, 2, 3, 4, 5, 6
+    ) /* select * from a order by rand() limit 10 */
+    , l as (
+        select
+            a.account_id,
+            a.plan_id,
+            a.line,
+            a.prev_used,
+            a.lim,
+            0 rollover,
+            a.curr_used,
+            a.cost
+        from 
+            a
+    ) /* select * from l order by rand() limit 10 */
+    , o as (
+        select
+            l.account_id,
+            l.plan_id,
+            l.line,
+            l.curr_used,
+            l.rollover,
+            l.lim,
+            calc_overage(l.curr_used, l.rollover, l.lim) overage,
+            l.cost
+        from l
+    ) /* select * from o order by rand() limit 10 */
+    select
+        o.account_id,
+        o.plan_id,
+        o.line,
+        o.curr_used,
+        o.rollover,
+        o.lim,
+        round(o.overage * o.cost, 2) overage_cost
+    from
+        o
+    where 
+        o.overage > 0
+    cluster by o.account_id
+    --order by rand()
+"""
+text_usage = spark.sql(text_usage_sql)
+text_usage.createOrReplaceTempView("text_usage")
+text_usage.show()
 
