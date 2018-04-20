@@ -29,9 +29,17 @@ spark = SparkSession.builder\
 
 ## NiFi 
 
+The pipelines are deployed on hdfmaster in HW_POC Process Group. 
 
+AddressValidationAPI: Performance concern 
 
+InvokeHttp will make one http operation per flow file, so if we need an operation per line of csv, then need to split the csv into multiple flow files with one line per flow file
+Looking Bulk API solution using InvokeHttp POST
 
+Another Option: Using ExecuteScript component 
+ExecuteScript supports quite a few scripting languages including groovy, python, jython, jruby, ruby, javascript
+
+Here is a good example: http://www.nifi.rocks/using-the-executescript-processor/
 
 ## Deploy Spark Job
-Jenkin job read source from git repo, deploy the code to EdgeNode. On all EdgeNodes, have already installed Spark clients which will have yarn, spark master info.
+Jenkin job read source from git repo, deploy the code to EdgeNode. On all EdgeNodes, have already installed Spark clients which will have yarn, spark master info 
